@@ -5,4 +5,4 @@ authors = ["Literallie <git@l1t.li>"]
 
 [dependencies]
 ansi_term = "0.9"
-oping = "0.3.3"
+pnet = "0.21.0"
