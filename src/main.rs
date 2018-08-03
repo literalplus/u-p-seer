@@ -1,21 +1,44 @@
 extern crate ansi_term;
 extern crate oping;
 extern crate term;
+extern crate floating_duration;
 
-use oping::{Ping, PingResult};
+pub mod net;
+
 use std::io::{self, Write};
+use std::sync::mpsc::channel;
+use std::time::Duration;
+use net::api::{PingConfig, PingResult, PingBackend};
+use std::time::Instant;
 use std::thread;
-use std::time::{Duration, Instant};
 
 fn main() {
     println!(" ~ ~ ~ u-p-seer v{} is overseeing your connection ~ ~ ~",
              option_env!("CARGO_PKG_VERSION").unwrap_or("?.?.?"));
     let ping_hosts = find_ping_hosts();
+    let cfg = PingConfig {
+        addrs: ping_hosts,
+        timeout: Duration::from_millis(700),
+    };
+    let mut ping = net::oping::OPingBackend::new(cfg);
+    ping.prepare().unwrap();
     loop {
-        let ping = mkping(&ping_hosts).unwrap();
         let start_is = Instant::now();
-        do_ping(ping).unwrap();
-        if start_is.elapsed().as_secs() < 1 {
+        let (tx, rx) = channel();
+        ping.send(tx);
+        while let Ok(res) = rx.recv() {
+            match res as PingResult {
+                Ok(resp) => {
+                    println!(" + {} responded in {}ms",
+                             resp.get_request_address(), resp.get_request_address());
+                }
+                Err(err) => {
+                    println!(" * {} is dead: {}",
+                             err.address.unwrap_or("???".into()), err.message);
+                }
+            }
+        }
+        if start_is.elapsed().as_secs() < 1 { // ensure ping interval >= 1s
             thread::sleep(Duration::from_secs(1) - start_is.elapsed());
         }
     }
@@ -51,24 +74,4 @@ fn find_ping_hosts() -> Vec<String> {
         }
     }
     ping_hosts
-}
-
-fn mkping(addrs: &Vec<String>) -> PingResult<Ping> {
-    let mut ping = Ping::new();
-    ping.set_timeout(0.7)?;
-    for addr in addrs {
-        ping.add_host(&addr)?;
-    }
-    Ok(ping)
-}
-
-fn do_ping(ping: Ping) -> PingResult<()> {
-    let responses = ping.send()?;
-    for response in responses {
-        match response.dropped {
-            0 => println!(" + {} in {}ms", response.hostname, response.latency_ms),
-            _ => println!(" * {} is rip", response.address)
-        }
-    }
-    return Ok(());
 }
